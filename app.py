@@ -207,7 +207,7 @@ st.markdown("Upload the three required files and click 'Generate Report' to get 
 
 # File upload widgets
 userlist_file = st.file_uploader(
-    "1. Upload **Userlist (userlist_20251106.xlsx)**", 
+    "1. Upload **Userlist (Example: userlist_20251106.xlsx)**", 
     type=['xlsx', 'csv'], 
     key='userlist'
 )
@@ -269,4 +269,5 @@ if st.button("▶️ Generate Report", type="primary"):
                     # Optional: Display a sample of the daily data
                     st.subheader("Sample Daily Aggregation:")
                     daily_data_reader = pd.read_excel(excel_output, sheet_name='Day')
+
                     st.dataframe(daily_data_reader.head())
