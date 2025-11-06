@@ -2,8 +2,9 @@ import pandas as pd
 import numpy as np
 import io
 import streamlit as st
+from datetime import datetime
 
-# --- Original Core Utility Functions (Adapted for Streamlit) ---
+# --- Core Utility Functions (Adapted for Streamlit) ---
 
 @st.cache_data
 def load_and_clean_data(uploaded_file, file_name):
@@ -23,7 +24,6 @@ def load_and_clean_data(uploaded_file, file_name):
             except UnicodeDecodeError:
                 df = pd.read_csv(uploaded_file, encoding='latin-1')
         else:
-            # This should be caught by Streamlit's file_uploader type filter, but included for robustness
             st.error(f"Unsupported file type: {file_name}")
             return pd.DataFrame()
 
@@ -39,11 +39,8 @@ def load_and_clean_data(uploaded_file, file_name):
         st.error(f"An error occurred while loading {file_name}: {e}")
         return pd.DataFrame()
 
-# --- Functions get_registrations, parse_date_column, get_subscriptions, aggregate_and_merge go here ---
-# (Copy them EXACTLY from your last working script)
-
 def parse_date_column(df, date_col_name):
-    # ... (Insert content of parse_date_column function here)
+    # ... (content of parse_date_column)
     if date_col_name not in df.columns:
         return df
         
@@ -71,7 +68,7 @@ def parse_date_column(df, date_col_name):
     return df
 
 def get_registrations(df_userlist):
-    # ... (Insert content of get_registrations function here)
+    # ... (content of get_registrations)
     if df_userlist.empty or 'Joined On' not in df_userlist.columns or 'Email Id' not in df_userlist.columns:
         st.warning("Registration sheet missing required columns: 'Joined On' or 'Email Id'.")
         return pd.DataFrame({'Date': [], 'Type': [], 'Email': []})
@@ -86,7 +83,7 @@ def get_registrations(df_userlist):
     return df[['Date', 'Type', 'Email']] 
 
 def get_subscriptions(df_userlist, df_stripe, df_paystack):
-    # ... (Insert content of get_subscriptions function here)
+    # ... (content of get_subscriptions)
     all_subscriptions = []
 
     # 1. Userlist Data
@@ -158,8 +155,57 @@ def get_subscriptions(df_userlist, df_stripe, df_paystack):
     df_combined['Type'] = 'Subscribed'
     return df_combined[['Date', 'Type']]
 
+# --- NEW SUMMARY FUNCTION ---
+
+def generate_summary(excel_output):
+    """Reads the generated Excel sheets and extracts the required metrics."""
+    try:
+        # Read the Excel output buffer
+        day_df = pd.read_excel(excel_output, sheet_name='Day', index_col=0)
+        month_df = pd.read_excel(excel_output, sheet_name='Month', index_col=0)
+        year_df = pd.read_excel(excel_output, sheet_name='Year', index_col=0)
+        
+        # Helper to safely get the last row's data (latest period)
+        def get_latest_metrics(df):
+            if df.empty:
+                return 0, 0, "N/A"
+            latest_row = df.iloc[-1]
+            date_col = df.index.name
+            date_str = str(latest_row.name).split(' ')[0] # Get date part only
+            return int(latest_row.get('Registered', 0)), int(latest_row.get('Subscribed', 0)), date_str
+
+        # Metrics for Today
+        reg_today, sub_today, date_today = get_latest_metrics(day_df)
+        
+        # Metrics for This Month
+        reg_month, sub_month, _ = get_latest_metrics(month_df)
+        
+        # Metrics for This Year
+        reg_year, sub_year, _ = get_latest_metrics(year_df)
+        
+        # Format the summary string
+        summary = f"""
+Date: {date_today}
+Time: {datetime.now().strftime('%H:%M:%S')}
+Number of Registrations Today: {reg_today}
+Number of Active Subscribers Today: {sub_today}
+Number of Registrations this month: {reg_month}
+Number of Active Subscribers this month: {sub_month}
+Number of Registrations this year: {reg_year}
+Number of Active Subscribers year: {sub_year}
+"""
+        return summary
+        
+    except Exception as e:
+        st.error(f"Error generating summary: {e}")
+        return "Could not generate summary."
+
+
 def aggregate_and_merge(df_registrations, df_subscriptions):
-    # ... (Insert content of aggregate_and_merge function here)
+    """
+    Aggregates registration and subscription data by time period and merges them.
+    Saves the results to a multi-sheet Excel file buffer.
+    """
     df_reg_final = df_registrations[['Date', 'Type']]
     df_sub_final = df_subscriptions[['Date', 'Type']]
     
@@ -179,6 +225,11 @@ def aggregate_and_merge(df_registrations, df_subscriptions):
     
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         for name, freq in time_periods.items():
+            
+            # Using the recommended frequency aliases to silence FutureWarnings
+            if freq == 'H': freq = 'h'
+            elif freq == 'M': freq = 'ME'
+            elif freq == 'Y': freq = 'YE'
             
             df_agg = df_events.groupby(
                 [pd.Grouper(key='Date', freq=freq), 'Type']
@@ -203,21 +254,22 @@ def aggregate_and_merge(df_registrations, df_subscriptions):
 
 st.set_page_config(page_title="User Analytics Report Generator", layout="centered")
 st.title("📊 User Analytics Report Generator")
-st.markdown("Upload the three required files and click 'Generate Report' to get the multi-sheet Excel output.")
+st.markdown("Upload the three required files and click **'Generate Report'** to get the multi-sheet Excel output.")
 
 # File upload widgets
+st.subheader("1. Upload Data Files")
 userlist_file = st.file_uploader(
-    "1. Upload **Userlist (Example: userlist_20251106.xlsx)**", 
+    "Userlist (userlist_20251106.xlsx)", 
     type=['xlsx', 'csv'], 
     key='userlist'
 )
 stripe_file = st.file_uploader(
-    "2. Upload **Stripe/Unified Customers (unified_customers.csv)**", 
+    "Stripe/Unified Customers (unified_customers.csv)", 
     type=['csv'], 
     key='stripe'
 )
 paystack_file = st.file_uploader(
-    "3. Upload **Paystack Transactions (EbonyLife_ON_transactions_...csv)**", 
+    "Paystack Transactions (EbonyLife_ON_transactions_...csv)", 
     type=['csv'], 
     key='paystack'
 )
@@ -225,7 +277,6 @@ paystack_file = st.file_uploader(
 # Run button
 if st.button("▶️ Generate Report", type="primary"):
     
-    # Check if all files were uploaded
     if not all([userlist_file, stripe_file, paystack_file]):
         st.error("Please upload all three required files to proceed.")
     else:
@@ -236,7 +287,6 @@ if st.button("▶️ Generate Report", type="primary"):
         df_stripe = load_and_clean_data(stripe_file, stripe_file.name)
         df_paystack = load_and_clean_data(paystack_file, paystack_file.name)
         
-        # Check if loading resulted in empty DataFrames
         if df_userlist.empty or df_stripe.empty or df_paystack.empty:
             st.error("Cannot proceed. One or more files failed to load correctly.")
         else:
@@ -259,6 +309,13 @@ if st.button("▶️ Generate Report", type="primary"):
                     st.header("🎉 Report Complete!")
                     st.balloons()
                     
+                    # 4. Generate and display the summary
+                    summary_text = generate_summary(excel_output)
+                    
+                    st.subheader("📈 Daily Metrics Summary")
+                    st.code(summary_text)
+
+                    # 5. Provide download button
                     st.download_button(
                         label="⬇️ Download user_analysis_report.xlsx",
                         data=excel_output,
@@ -269,5 +326,4 @@ if st.button("▶️ Generate Report", type="primary"):
                     # Optional: Display a sample of the daily data
                     st.subheader("Sample Daily Aggregation:")
                     daily_data_reader = pd.read_excel(excel_output, sheet_name='Day')
-
                     st.dataframe(daily_data_reader.head())
